@@ -12,6 +12,7 @@ import (
 	"math"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 
@@ -23,18 +24,18 @@ import (
 	_ "crg.eti.br/go/config/ini"
 )
 
-type neko struct {
-	waiting    bool
-	x          float64
-	y          float64
-	distance   int
-	count      int
-	min        int
-	max        int
-	state      int
-	sprite     string
-	lastSprite string
-	img        *ebiten.Image
+type kurama struct {
+	waiting bool
+	x       float64
+	y           float64
+	distance    int
+	count       int
+	min         int
+	max         int
+	state       int
+	sprite      string
+	lastSprite  string
+	img         *ebiten.Image
 
 	cfg           *Config
 	sprites       map[string]*ebiten.Image
@@ -44,15 +45,16 @@ type neko struct {
 }
 
 type Config struct {
-	Speed            float64 `cfg:"speed" cfgDefault:"2.0" cfgHelper:"The speed of the cat."`
-	Scale            float64 `cfg:"scale" cfgDefault:"2.0" cfgHelper:"The scale of the cat."`
+	Speed            float64 `cfg:"speed" cfgDefault:"10.0" cfgHelper:"The speed of the fox."`
+	Scale            float64 `cfg:"scale" cfgDefault:"1.0" cfgHelper:"The scale of the fox."`
 	Quiet            bool    `cfg:"quiet" cfgDefault:"false" cfgHelper:"Disable sound."`
 	MousePassthrough bool    `cfg:"mousepassthrough" cfgDefault:"false" cfgHelper:"Enable mouse passthrough."`
 }
 
 const (
-	width       = 32
-	height      = 32
+	width       = 64
+	height      = 64
+	idleRadius  = 80
 	sampleRate  = 44100
 	soundVolume = 0.3
 )
@@ -62,11 +64,11 @@ var (
 	f embed.FS
 )
 
-func (m *neko) Layout(outsideWidth, outsideHeight int) (int, int) {
+func (m *kurama) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return width, height
 }
 
-func (m *neko) playSound(soundName string) {
+func (m *kurama) playSound(soundName string) {
 	if m.cfg.Quiet {
 		return
 	}
@@ -90,29 +92,35 @@ func absInt(v int) int {
 	return v
 }
 
-func (m *neko) Update() error {
+func (m *kurama) Update() error {
 	m.count++
 	if m.state == 10 && m.count == m.min {
 		m.playSound("idle3")
 	}
 
-	// Prevents neko from being stuck on the side of the screen
-	// or randomly travelling to another monitor
-	monitorWidth, monitorHeight := ebiten.Monitor().Size()
-	windowWidth, windowHeight := ebiten.WindowSize()
-	maxX := float64(max(0, monitorWidth-windowWidth))
-	maxY := float64(max(0, monitorHeight-windowHeight))
+	// Use global cursor position so fox follows across monitors and Spaces
+	cursorX, cursorY := globalCursorPosition()
 
-	m.x = max(0, min(m.x, maxX))
-	m.y = max(0, min(m.y, maxY))
+	// Clamp window to total virtual desktop area
+	windowWidth, windowHeight := ebiten.WindowSize()
+	totalW, totalH := 0, 0
+	for _, mon := range ebiten.AppendMonitors(nil) {
+		w, h := mon.Size()
+		totalW += w
+		if h > totalH {
+			totalH = h
+		}
+	}
+	m.x = max(0, min(m.x, float64(totalW-windowWidth)))
+	m.y = max(0, min(m.y, float64(totalH-windowHeight)))
 	ebiten.SetWindowPosition(int(math.Round(m.x)), int(math.Round(m.y)))
 
-	mx, my := ebiten.CursorPosition()
-	x := mx - (width / 2)
-	y := my - (height / 2)
+	// Cursor offset relative to fox center in screen coordinates
+	x := int(cursorX - m.x) - (width / 2)
+	y := int(cursorY - m.y) - (height / 2)
 
 	m.distance = absInt(x) + absInt(y)
-	if m.distance < width || m.waiting {
+	if m.distance < idleRadius || m.waiting {
 		m.stayIdle()
 		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 			m.waiting = !m.waiting
@@ -120,14 +128,14 @@ func (m *neko) Update() error {
 		return nil
 	}
 
-	if m.state >= 13 {
+	if m.state >= 16 {
 		m.playSound("awake")
 	}
 	m.catchCursor(x, y)
 	return nil
 }
 
-func (m *neko) stayIdle() {
+func (m *kurama) stayIdle() {
 	// idle state
 	switch m.state {
 	case 0, 1, 2, 3:
@@ -143,16 +151,25 @@ func (m *neko) stayIdle() {
 		m.sprite = "wash"
 
 	case 10, 11, 12:
-		m.min = 32
-		m.max = 64
+		m.min = 64
+		m.max = 128
 		m.sprite = "yawn"
 
+	case 13, 14, 15:
+		// brief pause between yawn and sleep
+		m.min = 24
+		m.max = 48
+		m.sprite = "awake"
+
 	default:
+		// slow breathing sleep animation
+		m.min = 80
+		m.max = 160
 		m.sprite = "sleep"
 	}
 }
 
-func (m *neko) catchCursor(x, y int) {
+func (m *kurama) catchCursor(x, y int) {
 	m.state = 0
 	m.min = 8
 	m.max = 16
@@ -193,7 +210,7 @@ func (m *neko) catchCursor(x, y int) {
 	}
 }
 
-func (m *neko) Draw(screen *ebiten.Image) {
+func (m *kurama) Draw(screen *ebiten.Image) {
 	var sprite string
 	switch {
 	case m.sprite == "awake":
@@ -212,20 +229,13 @@ func (m *neko) Draw(screen *ebiten.Image) {
 		if m.state > 0 {
 			m.state++
 			switch m.state {
-			case 13:
+			case 16:
 				m.playSound("sleep")
 			}
 		}
 	}
 
-	if m.lastSprite == sprite {
-		return
-	}
-
-	m.lastSprite = sprite
-
 	screen.Clear()
-
 	screen.DrawImage(m.img, nil)
 }
 
@@ -277,8 +287,8 @@ func loadAssets(assetsFS fs.FS, sampleRate int) (map[string]*ebiten.Image, map[s
 func main() {
 	cfg := &Config{}
 
-	config.PrefixEnv = "NEKO"
-	config.File = "neko.ini"
+	config.PrefixEnv = "KURAMA"
+	config.File = "kurama.ini"
 	if err := config.Parse(cfg); err != nil {
 		log.Fatal(err)
 	}
@@ -296,7 +306,7 @@ func main() {
 
 	monitorWidth, monitorHeight := ebiten.Monitor().Size()
 
-	n := &neko{
+	n := &kurama{
 		x:            float64(monitorWidth / 2),
 		y:            float64(monitorHeight / 2),
 		min:          8,
@@ -315,14 +325,21 @@ func main() {
 	ebiten.SetWindowFloating(true)
 	ebiten.SetWindowMousePassthrough(cfg.MousePassthrough)
 	ebiten.SetWindowSize(int(float64(width)*cfg.Scale), int(float64(height)*cfg.Scale))
-	ebiten.SetWindowTitle("Neko")
+	ebiten.SetWindowTitle("Kurama")
+
+	// Trigger once after the window is ready. The C code installs an
+	// NSTimer on the main run loop that re-applies the flags every 2 s.
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		setWindowOnAllSpaces()
+	}()
 
 	err = ebiten.RunGameWithOptions(n, &ebiten.RunGameOptions{
 		InitUnfocused:     true,
 		ScreenTransparent: true,
 		SkipTaskbar:       true,
-		X11ClassName:      "Neko",
-		X11InstanceName:   "Neko",
+		X11ClassName:      "Kurama",
+		X11InstanceName:   "Kurama",
 	})
 	if err != nil {
 		log.Fatal(err)

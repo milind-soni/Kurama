@@ -1,65 +1,140 @@
-# Neko
+# Kurama 🦊
 
-![Neko](https://raw.githubusercontent.com/crgimenes/neko/master/assets/awake.png)
+A macOS desktop pet based on the legendary **Nine-Tailed Fox (Kurama)** from Naruto — lives on your screen, chases your cursor, and roams across all your monitors and Mission Control Spaces.
 
-[Neko](https://en.wikipedia.org/wiki/Neko_(software)) is a cat that chases the mouse cursor across the screen, an app written in the late 1980s and ported for many platforms.
+Forked from [crgimenes/neko](https://github.com/crgimenes/neko) and rebuilt with custom Kurama pixel art sprites and macOS multi-Space support.
 
-![Neco](https://github.com/crgimenes/neko/blob/master/fixtures/neko.gif)
+---
 
-This code is a re-implementation using Golang and **has no relationship to the original software**. Furthermore, this version does not use any part of the original source code except sprites and sounds.
+<p align="center">
+  <img src="assets/awake.png" width="128" alt="Kurama awake" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="assets/right1.png" width="128" alt="Kurama running" />
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="assets/sleep1.png" width="128" alt="Kurama sleeping" />
+</p>
 
-The goal is to demonstrate the Go language with a fun and very nostalgic example, without necessarily being tied to the behavior of the original version.
+---
 
-In this example, we used the [Ebitengine](https://ebitengine.org), an incredibly easy-to-use gaming library with a vibrant community.
+## Features
 
-## How to run
+- **Follows your cursor** across your entire screen
+- **Multi-monitor support** — roams across all connected displays
+- **All Spaces** — stays visible on top of full-screen apps and Mission Control Spaces using CoreGraphics + AppKit
+- **Idle animations** — scratch, wash, yawn, and fall asleep when you stop moving
+- **Transparent floating window** — no title bar, no dock icon, just the fox
+- **Click to pause** — left-click to freeze Kurama, click again to resume
+- **Configurable** via environment variables or `kurama.ini`
 
-Note that some operating systems may restrict the execution of binaries downloaded from the internet for security reasons. Please consult your operating system documentation to learn how to enable Neko to run.
+---
 
-```bash
-export CGO_ENABLED=1
-go run main.go
-```
+## Animations
 
-Or you can build the binary and run it:
+| State | Trigger |
+|-------|---------|
+| 🏃 Walking (8 directions) | Cursor is far away |
+| 👀 Awake | Cursor is nearby |
+| 🐾 Scratch | Idle for a few seconds |
+| 🧼 Wash | Idle a bit longer |
+| 😮 Yawn | Getting sleepy |
+| 💤 Sleep | Cursor has been still for a while |
 
-```bash
-export CGO_ENABLED=1
-go build -o neko main.go
-```
-Parameters
+---
 
-- `-mousepassthrough` Enable mouse passthrough (default false).
-- `-quiet` Disable sound.
-- `-scale` The scale of the cat on the screen (default 2.0).
-- `-speed` The speed of the cat (default 2).
-- `-h` Show help.
+## Requirements
 
-## How to install
+- macOS 12+ (Apple Silicon or Intel)
+- Go 1.21+
 
-Before installing Neko, make sure you have Go installed on your system, as we will be using `go install`.
+---
 
-Install dependencies, build, and install the project into your Go bin directory:
-
-```bash
-cd neko
-go mod tidy
-go install
-```
-
-To use Neko globally across your system, check if your Go bin directory is in your `$PATH` by running:
-
-```bash
-echo $PATH
-```
-If you don't see a Go bin directory, you'll need to add the following line to your `~/.bashrc`, `~/.zshrc`, or the equivalent shell configuration file:
+## Build & Run
 
 ```bash
-export PATH=$PATH:$(go env GOPATH)/bin
+git clone https://github.com/aivsomkar/Kurama.git
+cd Kurama
+go build -o kurama ./...
+./kurama
 ```
 
-After that, you can simply run `neko` in your terminal. If you want it to start with your system, you can add it to your `.xinitrc` or a similar startup script.
+### macOS permissions
 
-## How to Contribute
+On first run macOS may prompt for **Accessibility** access so Kurama can track the cursor globally across Spaces. Grant it in:
 
-Please follow our [contribution guide](CONTRIBUTING.md).
+> System Settings → Privacy & Security → Accessibility → add your Terminal
+
+---
+
+## Configuration
+
+Kurama reads from environment variables (prefixed `KURAMA_`) or a `kurama.ini` file in the working directory.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KURAMA_SPEED` | `10.0` | Movement speed (pixels per tick at 50 TPS) |
+| `KURAMA_SCALE` | `1.0` | Sprite scale multiplier |
+| `KURAMA_QUIET` | `false` | Disable all sound effects |
+| `KURAMA_MOUSEPASSTHROUGH` | `false` | Let clicks pass through the fox window |
+
+**Examples:**
+
+```bash
+# Faster and bigger
+KURAMA_SPEED=18 KURAMA_SCALE=1.5 ./kurama
+
+# Silent mode
+KURAMA_QUIET=true ./kurama
+```
+
+**`kurama.ini`:**
+```ini
+speed=12
+scale=1.2
+quiet=false
+mousepassthrough=false
+```
+
+---
+
+## Custom Sprites
+
+All sprites are 64×64 PNG files with transparent backgrounds, embedded into the binary at compile time. To use your own art, replace files in `assets/` and rebuild.
+
+| Files | Animation |
+|-------|-----------|
+| `awake.png` | Idle sitting |
+| `up1/2`, `down1/2`, `left1/2`, `right1/2` | Cardinal directions |
+| `upleft1/2`, `upright1/2`, `downleft1/2`, `downright1/2` | Diagonal directions |
+| `scratch1/2` | Scratching |
+| `wash1/2` | Grooming |
+| `yawn1/2` | Yawning |
+| `sleep1/2` | Sleeping |
+
+---
+
+## How It Works
+
+Kurama uses [Ebitengine](https://ebitengine.org/) for the game loop and rendering. The window runs with:
+
+- `ScreenTransparent: true` — only the sprite pixels are visible
+- `WindowDecorated: false` — no title bar or frame
+- `WindowFloating: true` — stays above normal windows
+
+For macOS Spaces and full-screen app support, a native Objective-C helper (via CGo) sets `NSWindowCollectionBehaviorCanJoinAllSpaces | FullScreenAuxiliary` and raises the window to `NSScreenSaverWindowLevel` using an `NSTimer` that refreshes every 2 seconds.
+
+Cursor tracking uses `CGEventCreate` from CoreGraphics to read the global cursor position, enabling the fox to follow the cursor across monitors and Spaces.
+
+---
+
+## Credits
+
+- Original `neko` concept and codebase — [crgimenes/neko](https://github.com/crgimenes/neko)
+- Game engine — [Ebitengine](https://ebitengine.org/) by Hajime Hoshi
+- Kurama pixel art sprites — AI-generated and customised
+- Inspired by the original [oneko](http://www.daidouji.com/oneko/) (1989)
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE)

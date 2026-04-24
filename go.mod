@@ -1,4 +1,4 @@
-module neko
+module kurama
 
 go 1.26
 
